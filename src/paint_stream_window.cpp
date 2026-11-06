@@ -27,24 +27,9 @@ PaintStreamWindow::PaintStreamWindow(StreamConfig config, QWidget *parent)
     connectionButton_->setObjectName("connectionButton");
     toolbar->addWidget(connectionButton_);
     if (sending) {
-        canvas_ = new PaintCanvas;
-        canvas_->setObjectName("paintCanvas");
-        auto *scroll = new QScrollArea;
-        scroll->setWidget(canvas_);
-        scroll->setAlignment(Qt::AlignCenter);
-        setCentralWidget(scroll);
-        auto *clearButton = new QPushButton("Clear", this);
-        clearButton->setObjectName("clearButton");
-        toolbar->addWidget(clearButton);
-        connect(clearButton, &QPushButton::clicked, canvas_, &PaintCanvas::clear);
-        captureTimer_->setTimerType(Qt::PreciseTimer);
-        captureTimer_->setInterval(qRound(1000.0 / config_.framesPerSecond));
-        connect(captureTimer_, &QTimer::timeout, this, &PaintStreamWindow::captureFrame);
+        setupCanvas(toolbar);
     } else {
-        auto *view = new ImageView(this);
-        view->setObjectName("videoView");
-        setCentralWidget(view);
-        connect(session_, &StreamSession::imageReady, view, &ImageView::setImage);
+        setupDisplay();
     }
     connect(connectionButton_, &QPushButton::clicked,
             this, &PaintStreamWindow::toggleConnection);
@@ -54,15 +39,38 @@ PaintStreamWindow::PaintStreamWindow(StreamConfig config, QWidget *parent)
     connect(session_, &StreamSession::errorOccurred, this, [this](const QString &message) {
         statusBar()->showMessage("Error: " + message);
     });
+}
+
+void PaintStreamWindow::setupCanvas(QToolBar *toolbar)
+{
+    canvas_ = new PaintCanvas;
+    canvas_->setObjectName("paintCanvas");
+    auto *scroll = new QScrollArea;
+    scroll->setWidget(canvas_);
+    scroll->setAlignment(Qt::AlignCenter);
+    setCentralWidget(scroll);
+    auto *clearButton = new QPushButton("Clear", this);
+    clearButton->setObjectName("clearButton");
+    toolbar->addWidget(clearButton);
+    connect(clearButton, &QPushButton::clicked, canvas_, &PaintCanvas::clear);
+    captureTimer_->setTimerType(Qt::PreciseTimer);
+    captureTimer_->setInterval(qRound(1000.0 / config_.framesPerSecond));
+    connect(captureTimer_, &QTimer::timeout, this, &PaintStreamWindow::captureFrame);
     connect(session_, &StreamSession::connectionChanged, this, [this](bool connected) {
-        if (canvas_) {
-            if (connected) {
-                captureTimer_->start();
-            } else {
-                captureTimer_->stop();
-            }
+        if (connected) {
+            captureTimer_->start();
+        } else {
+            captureTimer_->stop();
         }
     });
+}
+
+void PaintStreamWindow::setupDisplay()
+{
+    auto *view = new ImageView(this);
+    view->setObjectName("videoView");
+    setCentralWidget(view);
+    connect(session_, &StreamSession::imageReady, view, &ImageView::setImage);
 }
 
 PaintStreamWindow::~PaintStreamWindow()

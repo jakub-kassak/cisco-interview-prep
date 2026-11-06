@@ -1,24 +1,9 @@
 #include "h264_decoder.h"
+#include "codec_test_images.h"
 #include "h264_encoder.h"
 #include "i420_image.h"
 
-#include <QPainter>
 #include <QTest>
-
-namespace {
-QImage colorFrame(QSize size, int frame)
-{
-    QImage image(size, QImage::Format_RGB32);
-    image.fill(Qt::white);
-    QPainter painter(&image);
-    painter.fillRect(0, 0, size.width() / 3, size.height() / 2, Qt::red);
-    painter.fillRect(size.width() / 3, 0, size.width() / 3, size.height() / 2, Qt::green);
-    painter.fillRect(2 * size.width() / 3, 0, size.width() - 2 * size.width() / 3,
-                     size.height() / 2, Qt::blue);
-    painter.fillRect(frame * 10, size.height() - 30, 20, 20, Qt::black);
-    return image;
-}
-}
 
 class DecoderTests : public QObject
 {
@@ -51,7 +36,7 @@ private slots:
         QByteArray firstPixels;
         int decodedFrames = 0;
         for (int frame = 0; frame < 10; ++frame) {
-            const QImage expected = colorFrame(size, frame);
+            const QImage expected = CodecTestImages::colorFrame(size, frame);
             auto encoded = (*encoder)->encode(expected, frame * 1000 / 15);
             QVERIFY(encoded.has_value());
             if (!encoded->has_value()) {
@@ -65,27 +50,16 @@ private slots:
             QVERIFY(image.pixelColor(40, 40).red() > 220);
             QVERIFY(image.pixelColor(150, 40).green() > 220);
             QVERIFY(image.pixelColor(270, 40).blue() > 220);
-            double error = 0;
-            for (int y = 0; y < size.height(); ++y) {
-                for (int x = 0; x < size.width(); ++x) {
-                    const QColor a = image.pixelColor(x, y);
-                    const QColor b = expected.pixelColor(x, y);
-                    error += qAbs(a.red() - b.red()) + qAbs(a.green() - b.green()) +
-                             qAbs(a.blue() - b.blue());
-                }
-            }
-            QVERIFY(error / (size.width() * size.height() * 3) < 12);
+            QVERIFY(CodecTestImages::meanColorError(expected, image) < 12);
             if (firstImage.isNull()) {
                 firstImage = image;
-                firstPixels = QByteArray(reinterpret_cast<const char *>(image.constBits()),
-                                        image.sizeInBytes());
+                firstPixels = CodecTestImages::pixelBytes(image);
             }
             ++decodedFrames;
         }
         QVERIFY(decodedFrames >= 5);
         decoder->reset();
-        QCOMPARE(QByteArray(reinterpret_cast<const char *>(firstImage.constBits()),
-                            firstImage.sizeInBytes()), firstPixels);
+        QCOMPARE(CodecTestImages::pixelBytes(firstImage), firstPixels);
     }
 
     void rejectsEmptyAndMalformedAccessUnits()

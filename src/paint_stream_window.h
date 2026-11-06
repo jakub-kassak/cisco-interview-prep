@@ -7,6 +7,7 @@
 class PaintCanvas;
 class QPushButton;
 class QTimer;
+class QToolBar;
 class StreamSession;
 
 class PaintStreamWindow : public QMainWindow
@@ -17,6 +18,8 @@ public:
     void start();
 
 private:
+    void setupCanvas(QToolBar *toolbar);
+    void setupDisplay();
     void toggleConnection();
     void captureFrame();
 

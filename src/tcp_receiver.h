@@ -42,6 +42,8 @@ private:
     using ReadResult = std::expected<std::optional<QByteArray>, QString>;
 
     void acceptConnections();
+    void acceptPeer(QTcpSocket *socket);
+    void discardPeer(QTcpSocket *socket);
     void readMessages(QTcpSocket *socket);
     ReadResult tryReadMessage(QTcpSocket *socket);
     void rejectPeer(QTcpSocket *socket, const QString &reason);

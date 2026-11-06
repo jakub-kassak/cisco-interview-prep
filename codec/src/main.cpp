@@ -30,6 +30,48 @@ struct DecoderDeleter {
         WelsDestroyDecoder(decoder);
     }
 };
+using Encoder = std::unique_ptr<ISVCEncoder, EncoderDeleter>;
+using Decoder = std::unique_ptr<ISVCDecoder, DecoderDeleter>;
+
+Encoder createEncoder()
+{
+    ISVCEncoder* rawEncoder = nullptr;
+    require(WelsCreateSVCEncoder(&rawEncoder) == 0 && rawEncoder,
+            "Cannot create encoder");
+    Encoder encoder(rawEncoder);
+    SEncParamExt parameters{};
+    require(encoder->GetDefaultParams(&parameters) == 0, "Cannot get defaults");
+    parameters.iUsageType = SCREEN_CONTENT_REAL_TIME;
+    parameters.iPicWidth = width;
+    parameters.iPicHeight = height;
+    parameters.fMaxFrameRate = 30.0f;
+    parameters.iTargetBitrate = 500000;
+    // Fixed quantization keeps this smoke test deterministic, without skips.
+    parameters.iRCMode = RC_OFF_MODE;
+    parameters.bEnableFrameSkip = false;
+    parameters.bEnableAdaptiveQuant = false;
+    parameters.bEnableBackgroundDetection = false;
+    parameters.iSpatialLayerNum = 1;
+    parameters.iTemporalLayerNum = 1;
+    parameters.sSpatialLayers[0].iVideoWidth = width;
+    parameters.sSpatialLayers[0].iVideoHeight = height;
+    parameters.sSpatialLayers[0].fFrameRate = 30.0f;
+    parameters.sSpatialLayers[0].iSpatialBitrate = parameters.iTargetBitrate;
+    require(encoder->InitializeExt(&parameters) == 0, "Cannot initialize encoder");
+    return encoder;
+}
+
+Decoder createDecoder()
+{
+    ISVCDecoder* rawDecoder = nullptr;
+    require(WelsCreateDecoder(&rawDecoder) == 0 && rawDecoder,
+            "Cannot create decoder");
+    Decoder decoder(rawDecoder);
+    SDecodingParam decoding{};
+    decoding.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
+    require(decoder->Initialize(&decoding) == 0, "Cannot initialize decoder");
+    return decoder;
+}
 } // namespace
 
 int main(int argc, char** argv) {
@@ -41,37 +83,8 @@ int main(int argc, char** argv) {
             require(output.is_open(), "Cannot open output file");
         }
 
-        ISVCEncoder* rawEncoder = nullptr;
-        require(WelsCreateSVCEncoder(&rawEncoder) == 0 && rawEncoder,
-                "Cannot create encoder");
-        std::unique_ptr<ISVCEncoder, EncoderDeleter> encoder(rawEncoder);
-        SEncParamExt parameters{};
-        require(encoder->GetDefaultParams(&parameters) == 0, "Cannot get defaults");
-        parameters.iUsageType = SCREEN_CONTENT_REAL_TIME;
-        parameters.iPicWidth = width;
-        parameters.iPicHeight = height;
-        parameters.fMaxFrameRate = 30.0f;
-        parameters.iTargetBitrate = 500000;
-        // Fixed quantization keeps this smoke test deterministic, without skips.
-        parameters.iRCMode = RC_OFF_MODE;
-        parameters.bEnableFrameSkip = false;
-        parameters.bEnableAdaptiveQuant = false;
-        parameters.bEnableBackgroundDetection = false;
-        parameters.iSpatialLayerNum = 1;
-        parameters.iTemporalLayerNum = 1;
-        parameters.sSpatialLayers[0].iVideoWidth = width;
-        parameters.sSpatialLayers[0].iVideoHeight = height;
-        parameters.sSpatialLayers[0].fFrameRate = 30.0f;
-        parameters.sSpatialLayers[0].iSpatialBitrate = parameters.iTargetBitrate;
-        require(encoder->InitializeExt(&parameters) == 0, "Cannot initialize encoder");
-
-        ISVCDecoder* rawDecoder = nullptr;
-        require(WelsCreateDecoder(&rawDecoder) == 0 && rawDecoder,
-                "Cannot create decoder");
-        std::unique_ptr<ISVCDecoder, DecoderDeleter> decoder(rawDecoder);
-        SDecodingParam decoding{};
-        decoding.sVideoProperty.eVideoBsType = VIDEO_BITSTREAM_AVC;
-        require(decoder->Initialize(&decoding) == 0, "Cannot initialize decoder");
+        auto encoder = createEncoder();
+        auto decoder = createDecoder();
 
         // I420 is three planes: full-size Y, then quarter-size U and V.
         std::vector<unsigned char> pixels(lumaSize * 3 / 2, 128);

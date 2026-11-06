@@ -1,5 +1,4 @@
 #include <QCoreApplication>
-#include <QElapsedTimer>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QTest>
@@ -26,18 +25,10 @@ private slots:
         PeerProcess receiver;
         receiver.start(executable, {"receive"});
         QVERIFY(receiver.waitForStarted(5000));
-        QByteArray output;
-        QElapsedTimer deadline;
-        deadline.start();
-        QRegularExpression listening("LISTENING ([0-9]+)");
-        while (!listening.match(QString::fromUtf8(output)).hasMatch() && deadline.elapsed() < 5000) {
-            const bool ready = receiver.waitForReadyRead(5000 - int(deadline.elapsed()));
-            output += receiver.readAllStandardOutput();
-            if (!ready && receiver.state() == QProcess::NotRunning) {
-                break;
-            }
-        }
-        const auto match = listening.match(QString::fromUtf8(output));
+        QTRY_VERIFY(receiver.canReadLine());
+        QByteArray output = receiver.readLine();
+        const auto match = QRegularExpression("LISTENING ([0-9]+)")
+                               .match(QString::fromUtf8(output));
         QVERIFY2(match.hasMatch(), receiver.readAllStandardError().constData());
         PeerProcess sender;
         sender.start(executable, {"send", match.captured(1)});

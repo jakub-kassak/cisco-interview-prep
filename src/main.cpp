@@ -9,6 +9,24 @@
 #include <QStatusBar>
 #include <QToolBar>
 
+namespace {
+void saveCanvas(const PaintCanvas &canvas, QWidget &parent)
+{
+    QString path = QFileDialog::getSaveFileName(
+        &parent, "Save canvas", "drawing.png", "PNG image (*.png)");
+    if (path.isEmpty()) {
+        return;
+    }
+    if (!path.endsWith(".png", Qt::CaseInsensitive)) {
+        path += ".png";
+    }
+    if (!canvas.snapshot().save(path, "PNG")) {
+        QMessageBox::warning(&parent, "Save failed",
+                             "Could not write the image to the selected file.");
+    }
+}
+}
+
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
@@ -33,18 +51,7 @@ int main(int argc, char *argv[])
     QObject::connect(clearButton, &QPushButton::clicked,
                      canvas, &PaintCanvas::clear);
     QObject::connect(saveButton, &QPushButton::clicked, &window, [&] {
-        QString path = QFileDialog::getSaveFileName(
-            &window, "Save canvas", "drawing.png", "PNG image (*.png)");
-        if (path.isEmpty()) {
-            return;
-        }
-        if (!path.endsWith(".png", Qt::CaseInsensitive)) {
-            path += ".png";
-        }
-        if (!canvas->snapshot().save(path, "PNG")) {
-            QMessageBox::warning(&window, "Save failed",
-                                 "Could not write the image to the selected file.");
-        }
+        saveCanvas(*canvas, window);
     });
 
     window.statusBar()->showMessage(

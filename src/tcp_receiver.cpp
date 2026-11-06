@@ -51,14 +51,11 @@ void TcpReceiver::close()
 
 void TcpReceiver::disconnectPeer()
 {
-    resetMessage();
     if (peer_) {
-        QTcpSocket *oldPeer = peer_;
-        peer_ = nullptr;
-        oldPeer->disconnect(this);
-        oldPeer->abort();
-        oldPeer->deleteLater();
+        discardPeer(peer_);
         emit disconnected();
+    } else {
+        resetMessage();
     }
 }
 
@@ -71,15 +68,19 @@ void TcpReceiver::resetMessage()
 
 void TcpReceiver::rejectPeer(QTcpSocket *socket, const QString &reason)
 {
-    // Detach before notifying callers, which may reconnect immediately.
+    discardPeer(socket);
+    emit errorOccurred(reason);
+    emit disconnected();
+}
+
+void TcpReceiver::discardPeer(QTcpSocket *socket)
+{
+    // Clear state before callbacks can reconnect or restart the listener.
     peer_ = nullptr;
     resetMessage();
     socket->disconnect(this);
     socket->abort();
     socket->deleteLater();
-
-    emit errorOccurred(reason);
-    emit disconnected();
 }
 
 void TcpReceiver::acceptConnections()
@@ -92,34 +93,32 @@ void TcpReceiver::acceptConnections()
             continue;
         }
 
-        peer_ = socket;
-        resetMessage();
-        // The message assembly buffer is separately capped at maxPayloadBytes.
-        socket->setReadBufferSize(socketBufferBytes);
-        connect(socket, &QTcpSocket::readyRead, this,
-                [this, socket] { readMessages(socket); });
-        connect(socket, &QTcpSocket::errorOccurred, this,
-                [this, socket](QAbstractSocket::SocketError error) {
-                    // Normal EOF is reported through disconnected(), not as an error.
-                    if (peer_ == socket && error != QAbstractSocket::RemoteHostClosedError) {
-                        emit errorOccurred(socket->errorString());
-                    }
-                });
-        connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
-            // EOF may arrive with a complete last message still buffered.
-            readMessages(socket);
-            if (peer_ != socket) {
-                return;
-            }
-            peer_ = nullptr;
-            resetMessage();
-            socket->deleteLater();
-            emit disconnected();
-        });
-
-        emit connected();
-        readMessages(socket);
+        acceptPeer(socket);
     }
+}
+
+void TcpReceiver::acceptPeer(QTcpSocket *socket)
+{
+    peer_ = socket;
+    resetMessage();
+    socket->setReadBufferSize(socketBufferBytes);
+    connect(socket, &QTcpSocket::readyRead, this,
+            [this, socket] { readMessages(socket); });
+    connect(socket, &QTcpSocket::errorOccurred, this,
+            [this, socket](QAbstractSocket::SocketError error) {
+        // Normal EOF is handled by disconnected(), not as an error.
+        if (peer_ == socket && error != QAbstractSocket::RemoteHostClosedError) {
+            emit errorOccurred(socket->errorString());
+        }
+    });
+    connect(socket, &QTcpSocket::disconnected, this, [this, socket] {
+        readMessages(socket); // Drain complete messages buffered before EOF.
+        if (peer_ == socket) {
+            disconnectPeer();
+        }
+    });
+    emit connected();
+    readMessages(socket);
 }
 
 void TcpReceiver::readMessages(QTcpSocket *socket)
@@ -140,36 +139,33 @@ void TcpReceiver::readMessages(QTcpSocket *socket)
 
 TcpReceiver::ReadResult TcpReceiver::tryReadMessage(QTcpSocket *socket)
 {
-    while (socket->bytesAvailable() > 0) {
-        if (expectedBytes_ == 0) {
-            const QByteArray bytes = socket->read(headerBytes - header_.size());
-            if (bytes.isEmpty()) {
-                return std::nullopt;
-            }
-            header_.append(bytes);
-            if (header_.size() != headerBytes) {
-                continue;
-            }
-
-            expectedBytes_ = qFromBigEndian<quint32>(header_.constData());
-            if (expectedBytes_ == 0 || expectedBytes_ > TransportLimits::maxPayloadBytes) {
-                return std::unexpected(
-                    QStringLiteral("Invalid payload length (allowed: 1–16 MiB)."));
-            }
-            payload_.reserve(expectedBytes_);
+    if (socket->bytesAvailable() == 0) {
+        return std::nullopt;
+    }
+    if (expectedBytes_ == 0) {
+        header_.append(socket->read(headerBytes - header_.size()));
+        if (header_.size() != headerBytes) {
+            return std::nullopt;
         }
-
+        expectedBytes_ = qFromBigEndian<quint32>(header_.constData());
+        if (expectedBytes_ == 0 || expectedBytes_ > TransportLimits::maxPayloadBytes) {
+            return std::unexpected(
+                QStringLiteral("Invalid payload length (allowed: 1–16 MiB)."));
+        }
+        payload_.reserve(expectedBytes_);
+    }
+    while (payload_.size() < expectedBytes_ && socket->bytesAvailable() > 0) {
         const qint64 remaining = static_cast<qint64>(expectedBytes_) - payload_.size();
         const QByteArray bytes = socket->read(std::min(remaining, socketBufferBytes));
         if (bytes.isEmpty()) {
             return std::nullopt;
         }
         payload_.append(bytes);
-        if (payload_.size() == expectedBytes_) {
-            QByteArray message = std::move(payload_);
-            resetMessage();
-            return std::optional<QByteArray>{std::move(message)};
-        }
     }
-    return std::nullopt;
+    if (payload_.size() != expectedBytes_) {
+        return std::nullopt;
+    }
+    QByteArray message = std::move(payload_);
+    resetMessage();
+    return std::optional<QByteArray>{std::move(message)};
 }

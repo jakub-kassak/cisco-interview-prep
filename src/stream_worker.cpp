@@ -121,10 +121,7 @@ std::expected<bool, QString> StreamWorker::encodeAndSend(const QImage &image)
     if (!connected_ || !encoder_) {
         return false;
     }
-    // Reserve the largest permitted access unit before touching the encoder.
-    // A skipped raw capture has no decoder dependencies. A dropped encoded
-    // reference picture would corrupt later pictures, so never discard one
-    // and continue the same session after it fails to enter the TCP buffer.
+    // Skip before encoding: dropping an encoded reference would corrupt later frames.
     if (!sender_->canAcceptMessage(TransportLimits::maxPayloadBytes)) {
         return false;
     }
@@ -192,15 +189,13 @@ void StreamWorker::acknowledgeImage(quint64 ticket)
         return; // A stale acknowledgement from an earlier connection.
     }
     awaitingImageTicket_ = 0;
-    if (latestImage_) {
-        QImage image = std::move(latestImage_.value());
-        latestImage_.reset();
-        publishImage(std::move(image));
+    if (!latestImage_.isNull()) {
+        publishImage(std::exchange(latestImage_, {}));
     }
 }
 
 void StreamWorker::resetDisplay()
 {
-    latestImage_.reset();
+    latestImage_ = {};
     awaitingImageTicket_ = 0;
 }

@@ -9,6 +9,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 find_package(Qt6 6.2 REQUIRED COMPONENTS Widgets Network)
 set(CMAKE_AUTOMOC ON)
 
+if(MSVC)
+    add_compile_options(/W4)
+else()
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
 qt_add_executable(paint-share
     src/main.cpp
     src/paint_canvas.cpp
@@ -44,11 +50,3 @@ option(BUILD_H264_ENCODER "Build the optional OpenH264 encoder and its tests" OF
 if(BUILD_H264_ENCODER)
     include(cmake/H264Encoder.cmake)
 endif()
-
-foreach(target paint-share image-transport image-transfer)
-    if(MSVC)
-        target_compile_options(${target} PRIVATE /W4)
-    else()
-        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-    endif()
-endforeach()

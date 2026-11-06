@@ -59,6 +59,42 @@ std::expected<SEncParamExt, QString> makeParameters(
     layer.uiColorMatrix = CM_SMPTE170M;
     return parameters;
 }
+
+SSourcePicture makeSourcePicture(QByteArray &pixels, QSize size, qint64 timestampMs)
+{
+    const int width = size.width();
+    const int height = size.height();
+    const qsizetype ySize = qsizetype(width) * height;
+    auto *data = reinterpret_cast<unsigned char *>(pixels.data());
+    SSourcePicture picture{};
+    picture.iColorFormat = videoFormatI420;
+    picture.iPicWidth = width;
+    picture.iPicHeight = height;
+    picture.iStride[0] = width;
+    picture.iStride[1] = picture.iStride[2] = width / 2;
+    picture.pData[0] = data;
+    picture.pData[1] = data + ySize;
+    picture.pData[2] = data + ySize + ySize / 4;
+    picture.uiTimeStamp = timestampMs;
+
+    return picture;
+}
+
+QByteArray copyAccessUnit(const SFrameBSInfo &encoded)
+{
+    // OpenH264 owns these buffers and reuses them on the next encode call.
+    // Copy all NALs from all layers into an independently owned access unit.
+    QByteArray bytes;
+    for (int layerIndex = 0; layerIndex < encoded.iLayerNum; ++layerIndex) {
+        const auto &layer = encoded.sLayerInfo[layerIndex];
+        qsizetype layerBytes = 0;
+        for (int nal = 0; nal < layer.iNalCount; ++nal) {
+            layerBytes += layer.pNalLengthInByte[nal];
+        }
+        bytes.append(reinterpret_cast<const char *>(layer.pBsBuf), layerBytes);
+    }
+    return bytes;
+}
 }
 
 void H264Encoder::EncoderDeleter::operator()(ISVCEncoder *encoder) const
@@ -118,20 +154,7 @@ std::expected<std::optional<QByteArray>, QString> H264Encoder::encode(
         return std::unexpected(pixels.error());
     }
 
-    const int width = frameSize_.width();
-    const int height = frameSize_.height();
-    const qsizetype ySize = qsizetype(width) * height;
-    auto *data = reinterpret_cast<unsigned char *>(pixels->data());
-    SSourcePicture picture{};
-    picture.iColorFormat = videoFormatI420;
-    picture.iPicWidth = width;
-    picture.iPicHeight = height;
-    picture.iStride[0] = width;
-    picture.iStride[1] = picture.iStride[2] = width / 2;
-    picture.pData[0] = data;
-    picture.pData[1] = data + ySize;
-    picture.pData[2] = data + ySize + ySize / 4;
-    picture.uiTimeStamp = timestampMs;
+    auto picture = makeSourcePicture(pixels.value(), frameSize_, timestampMs);
 
     SFrameBSInfo encoded{};
     if (encoder_->EncodeFrame(&picture, &encoded) != 0) {
@@ -142,17 +165,7 @@ std::expected<std::optional<QByteArray>, QString> H264Encoder::encode(
         return std::nullopt;
     }
 
-    // OpenH264 owns these buffers and reuses them on the next encode call.
-    // Copy all NALs from all layers into an independently owned access unit.
-    QByteArray bytes;
-    for (int layerIndex = 0; layerIndex < encoded.iLayerNum; ++layerIndex) {
-        const auto &layer = encoded.sLayerInfo[layerIndex];
-        qsizetype layerBytes = 0;
-        for (int nal = 0; nal < layer.iNalCount; ++nal) {
-            layerBytes += layer.pNalLengthInByte[nal];
-        }
-        bytes.append(reinterpret_cast<const char *>(layer.pBsBuf), layerBytes);
-    }
+    QByteArray bytes = copyAccessUnit(encoded);
     if (bytes.isEmpty()) {
         return std::unexpected(QStringLiteral("OpenH264 returned an empty access unit."));
     }

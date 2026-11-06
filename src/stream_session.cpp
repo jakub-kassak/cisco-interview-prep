@@ -28,6 +28,16 @@ void StreamSession::start()
     captureBusy_ = false;
     worker_ = new StreamWorker(config_);
     worker_->moveToThread(&workerThread_);
+    connectWorker(generation);
+    workerThread_.start();
+}
+
+void StreamSession::connectWorker(quint64 generation)
+{
+    connect(this, &StreamSession::frameSubmitted,
+            worker_, &StreamWorker::processFrame, Qt::QueuedConnection);
+    connect(this, &StreamSession::imageAcknowledged,
+            worker_, &StreamWorker::acknowledgeImage, Qt::QueuedConnection);
     connect(&workerThread_, &QThread::started, worker_, &StreamWorker::start);
     // Qt processes this deferred deletion when the worker thread finishes.
     connect(&workerThread_, &QThread::finished, worker_, &QObject::deleteLater);
@@ -67,12 +77,9 @@ void StreamSession::start()
         emit imageReady(std::move(image));
         // An image callback may stop or restart the session.
         if (generation == generation_ && running_) {
-            QMetaObject::invokeMethod(worker_, [worker = worker_, ticket] {
-                worker->acknowledgeImage(ticket);
-            }, Qt::QueuedConnection);
+            emit imageAcknowledged(ticket);
         }
     });
-    workerThread_.start();
 }
 
 void StreamSession::stop()
@@ -85,8 +92,7 @@ void StreamSession::stop()
     running_ = false;
     connected_ = false;
     captureBusy_ = false;
-    // Shutdown runs on the socket/codec owning thread. This bounded wait is
-    // only for teardown; normal networking never blocks the GUI thread.
+    // Stop codecs/sockets on their thread before joining it.
     QMetaObject::invokeMethod(worker_, &StreamWorker::stop, Qt::BlockingQueuedConnection);
     workerThread_.quit();
     workerThread_.wait();
@@ -102,9 +108,7 @@ bool StreamSession::submitFrame(QImage image)
         return false;
     }
     captureBusy_ = true;
-    QMetaObject::invokeMethod(worker_, [worker = worker_, image = std::move(image)]() mutable {
-        worker->processFrame(std::move(image));
-    }, Qt::QueuedConnection);
+    emit frameSubmitted(std::move(image));
     return true;
 }
 

@@ -32,6 +32,10 @@ signals:
     void imageReady(QImage image);
 
 private:
+    Q_SIGNAL void frameSubmitted(QImage image);
+    Q_SIGNAL void imageAcknowledged(quint64 ticket);
+    void connectWorker(quint64 generation);
+
     const StreamConfig config_;
     QThread workerThread_;
     StreamWorker *worker_ = nullptr;

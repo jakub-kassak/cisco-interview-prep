@@ -8,7 +8,6 @@
 
 #include <expected>
 #include <memory>
-#include <optional>
 
 class H264Decoder;
 class H264Encoder;
@@ -51,7 +50,7 @@ private:
     std::unique_ptr<H264Decoder> decoder_;
     QElapsedTimer clock_;
     bool connected_ = false;
-    std::optional<QImage> latestImage_;
+    QImage latestImage_;
     quint64 nextImageTicket_ = 0;
     quint64 awaitingImageTicket_ = 0;
 };

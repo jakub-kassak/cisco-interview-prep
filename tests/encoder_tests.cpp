@@ -1,7 +1,7 @@
 #include "h264_encoder.h"
+#include "codec_test_images.h"
 
 #include <QImage>
-#include <QPainter>
 #include <QTest>
 #include <wels/codec_api.h>
 
@@ -71,34 +71,6 @@ bool containsNal(const QByteArray &bytes, int type)
     }
     return false;
 }
-
-QImage makeFrame(QSize size, int frame)
-{
-    // RGB888 rows are padded at width322, unlike a tightly packed RGB buffer.
-    QImage image(size, QImage::Format_RGB888);
-    image.fill(Qt::white);
-    QPainter painter(&image);
-    painter.fillRect(0, 0, size.width() / 3, size.height() / 2, Qt::red);
-    painter.fillRect(size.width() / 3, 0, size.width() / 3, size.height() / 2, Qt::green);
-    painter.fillRect(2 * size.width() / 3, 0, size.width() - 2 * size.width() / 3,
-                     size.height() / 2, Qt::blue);
-    painter.fillRect(frame * 8, size.height() - 40, 20, 20, Qt::black);
-    return image;
-}
-
-double meanColorError(const QImage &expected, const QImage &actual)
-{
-    double error = 0;
-    for (int y = 0; y < expected.height(); ++y) {
-        for (int x = 0; x < expected.width(); ++x) {
-            const QColor a = expected.pixelColor(x, y);
-            const QColor b = actual.pixelColor(x, y);
-            error += std::abs(a.red() - b.red()) + std::abs(a.green() - b.green()) +
-                     std::abs(a.blue() - b.blue());
-        }
-    }
-    return error / (expected.width() * expected.height() * 3);
-}
 }
 
 class EncoderTests : public QObject
@@ -115,7 +87,7 @@ private slots:
         QVERIFY(encoder.has_value());
         QVERIFY(!(*encoder)->encode(QImage{}, 0));
         QVERIFY(!(*encoder)->encode(QImage(322, 240, QImage::Format_RGB32), 0));
-        const QImage frame = makeFrame(QSize(320, 240), 0);
+        const QImage frame = CodecTestImages::colorFrame(QSize(320, 240), 0, QImage::Format_RGB888);
         QVERIFY(!(*encoder)->encode(frame, -1));
         QVERIFY((*encoder)->encode(frame, 100).has_value());
         QVERIFY(!(*encoder)->encode(frame, 99));
@@ -135,7 +107,7 @@ private slots:
         int decodedCount = 0;
 
         for (int frame = 0; frame < 12; ++frame) {
-            QImage image = makeFrame(size, frame);
+            QImage image = CodecTestImages::colorFrame(size, frame, QImage::Format_RGB888);
             // Also exercise conversion from Qt's platform-native 32-bit layout.
             if (frame % 2 != 0) {
                 image = image.convertToFormat(QImage::Format_RGB32);
@@ -156,7 +128,7 @@ private slots:
             auto decoded = decode(**decoder, encoded->value());
             QVERIFY2(decoded.has_value(), qPrintable(decoded ? QString{} : decoded.error()));
             QCOMPARE(decoded->size(), size);
-            QVERIFY(meanColorError(image, *decoded) < 12.0);
+            QVERIFY(CodecTestImages::meanColorError(image, *decoded) < 12.0);
             // These checks catch swapped RGB or U/V channels specifically.
             QVERIFY(decoded->pixelColor(40, 40).red() > 220);
             QVERIFY(decoded->pixelColor(150, 40).green() > 220);
