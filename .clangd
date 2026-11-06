@@ -1,0 +1,4 @@
+If:
+  PathMatch: (src|tests)/.*
+CompileFlags:
+  CompilationDatabase: build
