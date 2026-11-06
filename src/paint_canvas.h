@@ -24,7 +24,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
 
 private:
-    void drawLineTo(const QPoint &position);
+    void extendStroke(const QPoint &position);
 
     QImage image_;
     QPoint lastPosition_;

@@ -48,27 +48,31 @@ void PaintCanvas::mousePressEvent(QMouseEvent *event)
         drawing_ = true;
         lastPosition_ = event->position().toPoint();
         // A single click should leave a dot too.
-        drawLineTo(lastPosition_);
+        extendStroke(lastPosition_);
     }
 }
 
 void PaintCanvas::mouseMoveEvent(QMouseEvent *event)
 {
-    if (drawing_ && event->buttons().testFlag(Qt::LeftButton)) {
-        drawLineTo(event->position().toPoint());
+    if (event->buttons().testFlag(Qt::LeftButton)) {
+        extendStroke(event->position().toPoint());
     }
 }
 
 void PaintCanvas::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (drawing_ && event->button() == Qt::LeftButton) {
-        drawLineTo(event->position().toPoint());
+    if (event->button() == Qt::LeftButton) {
+        extendStroke(event->position().toPoint());
         drawing_ = false;
     }
 }
 
-void PaintCanvas::drawLineTo(const QPoint &position)
+void PaintCanvas::extendStroke(const QPoint &position)
 {
+    if (!drawing_) {
+        return;
+    }
+
     {
         // Paint into the bitmap here; only paintEvent paints on the widget.
         QPainter painter(&image_);

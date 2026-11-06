@@ -40,6 +40,11 @@ if(BUILD_TESTING)
     add_test(NAME transport-tests COMMAND transport-tests)
 endif()
 
+option(BUILD_H264_ENCODER "Build the optional OpenH264 encoder and its tests" OFF)
+if(BUILD_H264_ENCODER)
+    include(cmake/H264Encoder.cmake)
+endif()
+
 foreach(target paint-share image-transport image-transfer)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4)

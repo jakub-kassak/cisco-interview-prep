@@ -125,6 +125,64 @@ split headers and payloads, combined messages, invalid lengths, truncated
 connections, and a fresh connection afterward. Tests require Qt Test, included
 in Homebrew's Qt base module. To omit them, configure with `-DBUILD_TESTING=OFF`.
 
+## Optional OpenH264 encoder
+
+`H264Encoder` is a separate C++23 library target. It does not change the PNG
+transfer application or painting app. It uses the local Cisco library built by
+the existing standalone codec experiment:
+
+```sh
+bash codec/scripts/build-openh264.sh
+cmake -S . -B build -DBUILD_H264_ENCODER=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The option defaults to `OFF`, so normal builds do not require OpenH264.
+Set `OPENH264_ROOT` to use a different installation prefix; the default is
+`codec/.deps/install`. The source-build script pins Cisco OpenH264 v2.7.0.
+
+The API is intentionally small:
+
+```cpp
+auto created = H264Encoder::create(QSize(960, 540)); // 15 fps, 1 Mbit/s target.
+if (!created) {
+    // Report created.error().
+    return;
+}
+auto encoder = std::move(created.value());
+auto result = encoder->encode(canvas.snapshot(), timestampMs);
+if (!result) {
+    // Report result.error().
+} else if (result->has_value()) {
+    // Send result->value() as one TCP payload, in order.
+} // Otherwise OpenH264 skipped the frame; do not send an empty payload.
+```
+
+One instance represents one video session with fixed even dimensions of at
+least 16 × 16. Timestamps are nonnegative, nondecreasing milliseconds. Create a
+fresh encoder for each new receiver connection: the first output contains an
+IDR picture and parameter sets. Periodic IDRs are requested every two seconds
+of configured frames. The codec uses bitrate control and may skip frames to
+meet its target; the target is not a guaranteed network bandwidth limit.
+
+`src/i420_image.cpp` converts Qt RGB pixels to BT.601 limited-range I420 with
+2 × 2 chroma averaging. It handles Qt's padded scanlines and byte order through
+`Format_RGB888`; alpha is discarded. It does not perform color-profile
+conversion. No extra conversion dependency is needed for this learning
+prototype. Every returned access unit owns its bytes independently of the
+encoder's internal buffers, including after later calls or encoder destruction.
+
+The wrapper has no signals or internal application worker thread. Call it
+sequentially from one owning worker when integrating video; capture the canvas
+on the GUI thread first and pass the `QImage` value to that worker. OpenH264's
+internal encoding thread count is explicitly set to one. A decoder is used in
+the tests, but a reusable receiver decoder is still a later integration step.
+
+With the option enabled, `encoder-tests` checks invalid configuration and input,
+color/channel order, padded RGB rows, moving frames, decoded dimensions and
+lossy quality tolerance, startup SPS/PPS/IDR NALs, and output ownership.
+
 ## Later milestone: OpenH264 streaming
 
 The painting and PNG-transfer executables remain separate. Build the video
