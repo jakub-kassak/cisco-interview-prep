@@ -46,6 +46,11 @@ quint16 TcpReceiver::serverPort() const
 void TcpReceiver::close()
 {
     server_->close();
+    disconnectPeer();
+}
+
+void TcpReceiver::disconnectPeer()
+{
     resetMessage();
     if (peer_) {
         QTcpSocket *oldPeer = peer_;

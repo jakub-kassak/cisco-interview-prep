@@ -72,14 +72,7 @@ void TcpSender::disconnectFromHost()
 
 bool TcpSender::sendMessage(QByteArray payload)
 {
-    if (!socket_ || socket_->state() != QAbstractSocket::ConnectedState
-        || payload.isEmpty() || payload.size() > TransportLimits::maxPayloadBytes) {
-        return false;
-    }
-
-    const qint64 messageBytes = 4 + payload.size();
-    const qint64 pendingBytes = socket_->bytesToWrite();
-    if (messageBytes > TransportLimits::maxPendingBytes - pendingBytes) {
+    if (!canAcceptMessage(payload.size())) {
         return false;
     }
 
@@ -104,4 +97,11 @@ bool TcpSender::sendMessage(QByteArray payload)
     }
     hadPending_ = true;
     return true;
+}
+
+bool TcpSender::canAcceptMessage(qsizetype payloadBytes) const
+{
+    return socket_ && socket_->state() == QAbstractSocket::ConnectedState &&
+        payloadBytes > 0 && payloadBytes <= TransportLimits::maxPayloadBytes &&
+        4 + payloadBytes <= TransportLimits::maxPendingBytes - socket_->bytesToWrite();
 }

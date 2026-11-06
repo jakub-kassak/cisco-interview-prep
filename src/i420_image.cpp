@@ -2,6 +2,7 @@
 
 #include <QImage>
 
+#include <algorithm>
 #include <limits>
 
 std::expected<QByteArray, QString> imageToI420(const QImage &image)
@@ -56,4 +57,32 @@ std::expected<QByteArray, QString> imageToI420(const QImage &image)
         }
     }
     return pixels;
+}
+
+std::expected<QImage, QString> imageFromI420(
+    const unsigned char *yPlane, const unsigned char *uPlane,
+    const unsigned char *vPlane, QSize size, int yStride, int uvStride)
+{
+    if (!yPlane || !uPlane || !vPlane || size.width() < 1 || size.height() < 1 ||
+        size.width() % 2 != 0 || size.height() % 2 != 0 ||
+        yStride < size.width() || uvStride < size.width() / 2) {
+        return std::unexpected(QStringLiteral("Invalid I420 planes, dimensions, or strides."));
+    }
+    QImage image(size, QImage::Format_RGB888);
+    if (image.isNull()) {
+        return std::unexpected(QStringLiteral("Could not allocate the decoded image."));
+    }
+    for (int y = 0; y < size.height(); ++y) {
+        auto *row = image.scanLine(y);
+        for (int x = 0; x < size.width(); ++x) {
+            const int c = int(yPlane[qsizetype(y) * yStride + x]) - 16;
+            const qsizetype chroma = qsizetype(y / 2) * uvStride + x / 2;
+            const int d = int(uPlane[chroma]) - 128;
+            const int e = int(vPlane[chroma]) - 128;
+            row[3 * x] = std::clamp((298 * c + 409 * e + 128) >> 8, 0, 255);
+            row[3 * x + 1] = std::clamp((298 * c - 100 * d - 208 * e + 128) >> 8, 0, 255);
+            row[3 * x + 2] = std::clamp((298 * c + 516 * d + 128) >> 8, 0, 255);
+        }
+    }
+    return image;
 }

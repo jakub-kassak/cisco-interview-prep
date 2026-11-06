@@ -26,6 +26,8 @@ public:
     bool listen(const QHostAddress &address, quint16 port);
     quint16 serverPort() const; // Supports ephemeral port 0 for tests.
     void close();
+    // End the active peer connection while keeping the listening socket open.
+    void disconnectPeer();
 
 signals:
     void connected();

@@ -58,7 +58,9 @@ private slots:
         QTRY_COMPARE(connected.count(), 1);
 
         const QByteArray payload(TransportLimits::maxPayloadBytes, 'x');
+        QVERIFY(sender.canAcceptMessage(payload.size()));
         QVERIFY(sender.sendMessage(payload));
+        QVERIFY(!sender.canAcceptMessage(payload.size()));
         // No event-loop turn between sends: both framed messages together
         // exceed 32 MiB because each includes its four-byte length header.
         QVERIFY(!sender.sendMessage(payload));

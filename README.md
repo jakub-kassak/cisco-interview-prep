@@ -176,31 +176,97 @@ encoder's internal buffers, including after later calls or encoder destruction.
 The wrapper has no signals or internal application worker thread. Call it
 sequentially from one owning worker when integrating video; capture the canvas
 on the GUI thread first and pass the `QImage` value to that worker. OpenH264's
-internal encoding thread count is explicitly set to one. A decoder is used in
-the tests, but a reusable receiver decoder is still a later integration step.
+internal encoding thread count is explicitly set to one. `H264Decoder` now
+provides the matching owned-image decoder for the live-streaming worker.
 
 With the option enabled, `encoder-tests` checks invalid configuration and input,
 color/channel order, padded RGB rows, moving frames, decoded dimensions and
 lossy quality tolerance, startup SPS/PPS/IDR NALs, and output ownership.
 
-## Later milestone: OpenH264 streaming
+## Live painting over OpenH264 and TCP
 
-The painting and PNG-transfer executables remain separate. Build the video
-pipeline as a later milestone, then connect it to the canvas:
+The optional `paint-stream` executable combines the canvas, codec, and existing
+length-prefixed TCP transport. Enable the codec as shown above, then start the
+receiver first in one terminal and the sender in another:
 
-1. First stream a generated test image using
-   [Cisco OpenH264](https://github.com/cisco/openh264).
-2. Convert RGB into I420 (Y, U, V planes), encode it, and use the existing TCP
-   transport to send complete encoded access units in order.
-3. Decode received units, convert back to a Qt image, and display through
-   `ImageView::setImage()`.
-4. Sample `PaintCanvas::snapshot()` on the GUI thread with a timer (for example,
-   15 frames per second), then pass the snapshot to the encoding worker.
-   Keep networking and encoding work off the GUI thread.
+```sh
+./build/paint-stream --mode receive --host 127.0.0.1 --port 5000
+./build/paint-stream --mode send --host 127.0.0.1 --port 5000
+```
 
-`snapshot()` returns a `QImage` by value. Qt's implicit sharing makes the initial
-copy inexpensive; later edits detach the drawing buffer, preserving the older
-snapshot. This is a useful starting point for passing frames to a worker.
+Draw with the sender's left mouse button. **Clear** resets its bitmap and the
+next captured frame updates the receiver. The canvas is fixed at 960 × 540,
+with a 15 fps capture timer and 1 Mbit/s encoder target. The original
+`paint-share` and PNG `image-transfer` executables remain separate and runnable.
+For two computers, bind the receiver to its LAN IP or `0.0.0.0`, and give the
+sender that receiver's LAN IP. Plain TCP has no authentication or encryption;
+this prototype is intended for local testing and a trusted LAN.
+
+**Disconnect / Connect** stops and restarts the sender's session. If the peer
+closes the connection or an error occurs, stop the old session before connecting
+again. **Stop listening / Listen** does the same for the receiver. A normal sender
+disconnect leaves the receiver listening for the next sender. Each new TCP
+connection gets fresh encoder/decoder state, including initial SPS/PPS and IDR
+NAL units. No frame can depend on the previous connection.
+
+The thread boundaries are explicit:
+
+```text
+Sender GUI:    mouse → bitmap; timer → snapshot
+Sender worker: snapshot → RGB/I420 → OpenH264 → TCP buffer
+Receiver worker: TCP → complete access units → OpenH264 → owned RGB image
+Receiver GUI:  latest image → repaint
+```
+
+`StreamSession` lives on the GUI thread and owns the worker's lifecycle.
+`StreamWorker` creates and uses its socket and codec on one worker `QThread`.
+Queued signals and queued method calls pass image values across the boundary;
+workers never touch widgets. The timer checks `canCapture()` before taking a
+snapshot, and only one capture job can be outstanding. A busy worker causes
+capture ticks to be skipped, not accumulated.
+
+Before encoding, the worker reserves enough TCP-buffer budget for the maximum
+permitted access unit. If that budget is unavailable, it skips the raw capture
+without changing codec state. If an already encoded frame cannot be sent,
+the session ends: continuing after discarding a reference frame could corrupt
+subsequent pictures. Encoded frames are always delivered to TCP in order.
+
+On the receiving side, all encoded frames are decoded in order. Display
+notifications are bounded to one outstanding GUI image and one replaceable
+latest decoded image. The GUI acknowledges taking an image, allowing the worker
+to publish the newest pending one. This acknowledgement is local scheduling,
+not a network acknowledgement or a promise that the screen has repainted.
+
+Stopping a session first runs socket/codec cleanup on its worker thread, then
+quits and joins that thread. Normal frame processing never blocks the GUI.
+Shutdown waits only for the current finite job and cleanup; it does not wait for
+network delivery and never terminates a thread forcibly.
+
+Useful review entry points:
+
+| File | Responsibility |
+| --- | --- |
+| `src/paint_stream_main.cpp` | CLI and application startup |
+| `src/paint_stream_window.cpp` | Canvas/view, GUI timer, Start/Stop controls |
+| `src/stream_session.cpp` | Queued GUI/worker communication and bounded capture |
+| `src/stream_worker.cpp` | Ordered codec/TCP pipeline and display coalescing |
+| `src/h264_decoder.cpp` | OpenH264 decoding into independently owned images |
+| `src/i420_image.cpp` | BT.601 limited-range RGB/I420 conversions |
+
+With the codec enabled, `ctest --test-dir build --output-on-failure` runs six
+suites: transport, encoder, decoder, threaded sessions, offscreen GUI, and
+independent-process streaming. They cover colors and padded strides, image
+ownership, fresh sessions, pre-encode backpressure, bounded captures/display,
+shutdown during encoding and idle listening, drawing/Clear/reconnect, GUI event
+progress, and decoded transfer between two separate processes. The GUI test
+writes `build/received-stream-preview.png` for visual inspection. Normal
+headless-platform/font warnings may appear; thread-affinity warnings are
+checked separately by the session tests.
+
+The current scope is one sender and one receiver, fixed dimensions, manual
+reconnect, and BT.601 SDR conversion. There is no audio, automatic network
+reconnection, dimension negotiation, or color-profile conversion. Cross-computer
+operation uses the same transport but still needs a manual LAN check.
 
 ## Manual check
 

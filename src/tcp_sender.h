@@ -20,6 +20,8 @@ public:
     // true = accepted locally, not acknowledged by the peer.
     // false = disconnected, invalid size, pending-byte limit, or write failure.
     bool sendMessage(QByteArray payload);
+    // Owning thread only. Reserve enough budget before encoding a reference frame.
+    bool canAcceptMessage(qsizetype payloadBytes) const;
 
 signals:
     void connected();
