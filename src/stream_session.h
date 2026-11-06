@@ -18,6 +18,7 @@ public:
     ~StreamSession() override;
     void start();
     void stop();
+    // Returns false if the session cannot accept another capture.
     bool submitFrame(QImage image);
     bool canCapture() const;
     bool isRunning() const;

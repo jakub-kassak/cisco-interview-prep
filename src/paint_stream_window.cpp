@@ -98,9 +98,5 @@ void PaintStreamWindow::toggleConnection()
 
 void PaintStreamWindow::captureFrame()
 {
-    // Check before copying/detaching a snapshot. Mouse handlers, this timer,
-    // and painting all run sequentially on the GUI thread.
-    if (session_->canCapture()) {
-        session_->submitFrame(canvas_->snapshot());
-    }
+    session_->submitFrame(canvas_->snapshot());
 }
